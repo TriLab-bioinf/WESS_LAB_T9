@@ -1,0 +1,93 @@
+---
+title: "Liu's scRNAseq project"
+output: html_notebook
+---
+
+```{r}
+require(tsne)
+require(pheatmap)
+require(MASS)
+require(cluster)
+require(mclust)
+require(flexmix)
+require(lattice)
+require(fpc)
+require(amap)
+require(RColorBrewer)
+require(locfit)
+library(RaceID)
+library(Seurat)
+library(dplyr)
+library(patchwork)
+```
+
+
+
+```{r}
+# Load collaborator's scRNAseq data (scs4 RaceID object contains the EEC atlas)
+load("~/Documents/LOCAL_PROJECTS/WESS_LAB/LiuLiu/scRNAseq/Atlas_nonEEC.RData")
+```
+
+```{r raceid pipeline}
+# Get normalized expression data
+my_scs4 <- getfdata(scs4)
+
+# Filter cells based on gene expression speciefied in the Beumer paper
+my_filter = as.vector(my_scs4["CHGA",] >= 5 & my_scs4["MUC2",] <= 5 & my_scs4["FABP1",] <= 15 & my_scs4["LYZ",] <= 15 & my_scs4["OLFM4",] <= 10)
+
+# get filtered cell IDs
+my_filter_samples <- colnames(scs4@ndata)[my_filter]
+
+# Extract raw read counts for filtered cells from original data
+scs4_filtered <- scs4@expdata[, my_filter_samples]
+
+# Create a new RaceID object
+scs4.filtered <- SCseq(scs4_filtered)
+
+# Filter out cells with less than 2000 read counts total and number of nearest neighbours = 5
+scs4.filtered <- filterdata(scs4.filtered, mintotal = 2000, knn = 5)
+
+# Calculate destance between cells
+scs4.filtered <- compdist(scs4.filtered,metric="pearson")
+
+# Perform clustering based k-medoids
+scs4.filtered <- clustexp(scs4.filtered,sat=TRUE)
+
+# Detect outliers
+scs4.filtered <- findoutliers(scs4.filtered)
+plotsensitivity(scs4.filtered)
+plotoutlierprobs(scs4.filtered)
+
+# Generate tsne plot
+scs4.filtered <- comptsne(scs4.filtered)
+p <- plotmap(scs4.filtered, final = TRUE)
+print(p)
+
+# Plot gene expression across clusters of different gene sets
+g <- c("GIP","GAST")
+p1 <- plotexpmap(scs4.filtered,g, n= "GIP+GAST",logsc=TRUE)
+print(p1)
+
+genes_of_interest <- c("CHGA", "TPH1", "REG4", "SCG2", "MLN", "GHRL", "ENPP2","GAST", "GIP", "ACSL1")
+for (i in genes_of_interest){
+  p2 <- plotexpmap(scs4.filtered,i, n= i,logsc=TRUE)
+  print(p2)
+}
+
+```
+
+```{r extract cells of interest}
+
+# Get cell names from clusters 3 and 9 that overexpress GIT and GAST
+gip_gast_positive_cells <- names(scs4.filtered@cpart[scs4.filtered@cpart %in% c(3,9)])
+
+gip_gast_positive_cells.exp <- scs4@expdata[,gip_gast_positive_cells]
+
+# Save raw cell expression data in gip_gast_positive_cells.csv file
+write.csv(as.data.frame(gip_gast_positive_cells.exp), file = "gip_gast_positive_cells.csv", sep = ",")
+```
+
+```{r}
+sessionInfo()
+```
+
